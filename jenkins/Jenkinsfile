@@ -29,6 +29,9 @@
 
                         mkdir -p reports
                         mv coverage.html reports/
+
+                        ls -la
+                        ls -la reports || true
                     '''
                 }
             }
