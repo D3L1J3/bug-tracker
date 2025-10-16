@@ -23,7 +23,7 @@
                         go test -v ./... 2>&1 | go-junit-report > test-results.xml
 
                         # Generate coverage report
-                        go test -coverprofile=coverage.out -covermode=atomic ./...
+                        go test -coverprofile coverage.out -covermode=atomic ./...
                         go tool cover -html=coverage.out -o coverage.html
 
 
@@ -43,6 +43,7 @@
                 }
             }
         }
+
         stage('Unit Tests - Frontend') {
             agent {
                 docker {
