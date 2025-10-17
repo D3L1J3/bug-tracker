@@ -104,6 +104,23 @@ pipeline {
         sh 'docker compose up --build -d' // Build and launch application in detached mode
       }
     }
+
+    stage('Api Tests') {
+      agent {
+        docker {
+          image 'mcr.microsoft.com/playwright:v1.50.0-jammy'  // Playwright image for API tests
+          reuseNode true
+          args '-u 0 --network=host'  // Run as root and use host network
+        }
+      }
+      steps {
+        dir('test-api') {
+          sh 'npx wait-port http://localhost:8080/api/health -t 30000'  // Wait for backend to be ready
+          
+          sh 'npm ci'  // Install test dependencies
+          sh 'npx playwright test'  // Run Playwright tests
+        }
+      }
   }
 
   // -------------------- Cleanup --------------------
