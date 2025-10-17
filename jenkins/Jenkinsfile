@@ -1,82 +1,104 @@
- pipeline {
-    agent any
- 
-    stages {
+pipeline {
+  agent any  // Run on any available Jenkins agent
+
+  stages {
+    stage('Execute Unit Tests') {
+      parallel {  // Run backend and frontend tests in parallel
+
+        // -------------------- Backend Tests --------------------
         stage('Unit Tests - Backend') {
-            agent {
-                docker {
-                    image 'snakee/golang-junit:1.21'
-                    reuseNode true // ensures container uses same workspace and Jenkins node
-                }
+          agent {
+            docker {
+              image 'snakee/golang-junit:1.21'  // Docker image with Go and junit reporter
+              reuseNode true  // Reuse Jenkins node workspace
             }
-            steps {
-                dir('bugtracker-backend') {
-                    sh '''
-                        # Set Go cache to a writable location
-                        export GOCACHE="$PWD/.cache/go-build"
-                        export GOMODCACHE="$PWD/.cache/go-mod"
-                        
-                        # Create cache directories
-                        mkdir -p "$GOCACHE" "$GOMODCACHE"
-                        
-                        # Run the tests
-                        go test -v ./... 2>&1 | go-junit-report > test-results.xml
+          }
+          steps {
+            dir('bugtracker-backend') {
+              sh '''
+                # Configure Go build caches inside the workspace
+                export GOCACHE="$PWD/.cache/go-build"
+                export GOMODCACHE="$PWD/.cache/go-mod"
+                mkdir -p "$GOCACHE" "$GOMODCACHE"
 
-                        # Generate coverage report
-                        go test -coverprofile coverage.out -covermode=atomic ./...
-                        go tool cover -html=coverage.out -o coverage.html
+                # Run Go tests and generate JUnit XML report
+                go test -v ./... 2>&1 | go-junit-report > test-results.xml
 
+                # Generate code coverage report in HTML format
+                go test -coverprofile coverage.out -covermode=atomic ./...
+                go tool cover -html=coverage.out -o coverage.html
 
-                        mkdir -p reports
-                        mv coverage.html reports/
+                # Move coverage report into reports folder for Jenkins
+                mkdir -p reports
+                mv coverage.html reports/
 
-                        ls -la
-                        ls -la reports || true
-                    '''
-                }
+                # List files to confirm they exist
+                ls -la
+                ls -la reports || true
+              '''
             }
-            post {
-                always {
-                    junit 'bugtracker-backend/test-results.xml'
-                    publishHTML target: [
-                        reportDir: 'bugtracker-backend/reports',
-                        reportFiles: 'coverage.html',
-                        reportName: 'Backend Coverage Report'
-                    ]
-                }
+          }
+          post {
+            always {
+              // Publish backend JUnit test results
+              junit 'bugtracker-backend/test-results.xml'
+
+              // Publish backend coverage HTML report
+              publishHTML target: [
+                reportDir: 'bugtracker-backend/reports',
+                reportFiles: 'coverage.html',
+                reportName: 'Backend Coverage Report'
+              ]
             }
+          }
         }
 
+        // -------------------- Frontend Tests --------------------
         stage('Unit Tests - Frontend') {
-            agent {
-                docker {
-                    image 'node:20-alpine'
-                    reuseNode true // ensures container uses same workspace and Jenkins node
-                }
+          agent {
+            docker {
+              image 'node:20-alpine'  // Lightweight Node.js image for frontend tests
+              reuseNode true
             }
-            steps {
-                dir('bugtracker-frontend') {
-                    sh '''
-                        # Install dependencies
-                        npm ci
-                        
-                        # Run the tests
-                        npm test
-                        mkdir -p reports
-                        mv coverage reports/
-                    '''
-                }
+          }
+          steps {
+            dir('bugtracker-frontend') {
+              sh '''
+                # Install dependencies
+                npm ci
+
+                # Run Jest tests and generate coverage report
+                npm test
+
+                # Move coverage output to reports directory
+                mkdir -p reports
+                mv coverage reports/
+              '''
             }
-            post {
-                always {
-                    junit 'bugtracker-frontend/test-results.xml'
-                    publishHTML target: [
-                        reportDir: 'bugtracker-frontend/reports/coverage',
-                        reportFiles: 'index.html',
-                        reportName: 'Frontend Coverage Report'
-                    ]
-                }
+          }
+          post {
+            always {
+              // Publish frontend JUnit test results
+              junit 'bugtracker-frontend/test-results.xml'
+
+              // Publish frontend coverage HTML report
+              publishHTML target: [
+                reportDir: 'bugtracker-frontend/reports/coverage',
+                reportFiles: 'index.html',
+                reportName: 'Frontend Coverage Report'
+              ]
             }
+          }
         }
+      }
     }
+  }
+
+  // -------------------- Cleanup --------------------
+  post {
+    always {
+      // Clean workspace after build completes
+      cleanWs()
+    }
+  }
 }
