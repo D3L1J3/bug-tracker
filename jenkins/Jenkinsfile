@@ -90,8 +90,9 @@ pipeline {
             }
           }
         }
-      }
-    }
+      } // end parallel
+    } // end stage 'Execute Unit Tests'
+
     stage('Launch Application') {
       agent {
         docker {
@@ -116,7 +117,7 @@ pipeline {
       steps {
         dir('test-api') {
           sh 'npx wait-port http://localhost:8080/api/health -t 30000'  // Wait for backend to be ready
-          
+
           sh 'npm ci'  // Install test dependencies
           sh 'npx playwright test'  // Run Playwright tests
         }
@@ -134,7 +135,8 @@ pipeline {
           ]
         }
       }
-  }
+    }
+  } // end stages
 
   // -------------------- Cleanup --------------------
   post {
