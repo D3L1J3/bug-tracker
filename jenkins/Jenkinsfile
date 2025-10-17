@@ -116,10 +116,23 @@ pipeline {
       }
       steps {
         dir('test-api') {
-          sh 'npx wait-port http://localhost:8080/api/health -t 30000'  // Wait for backend to be ready
+          // Vänta in backend
+          sh 'npx wait-port http://localhost:8080/api/health -t 30000'
 
-          sh 'npm ci'  // Install test dependencies
-          sh 'npx playwright test'  // Run Playwright tests
+          // Installera: fallback till npm install om ingen package-lock.json finns
+          sh 'npm ci || npm install'
+
+          // Säkerställ att målmappar finns
+          sh 'mkdir -p test-results playwright-report'
+
+          // Kör Playwright och skriv rapporter där junit/publishHTML redan letar
+          sh '''
+            npx playwright test \
+              --reporter=junit,html \
+              --reporter-option junit.outputFile=test-results/results.xml \
+              --reporter-option html.outputFolder=playwright-report \
+              --reporter-option html.open=never
+          '''
         }
       }
       post {
