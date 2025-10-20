@@ -1,38 +1,25 @@
 pipeline {
-  agent any // Kör på valfri Jenkins-agent
+  agent any
 
   stages {
     stage('Execute Unit Tests') {
       parallel {
-        // -------------------- Backend Tests --------------------
         stage('Unit Tests - Backend') {
-          agent {
-            docker {
-              image 'snakee/golang-junit:1.21' // Go + junit reporter
-              reuseNode true
-            }
-          }
+          agent { docker { image 'snakee/golang-junit:1.21'; reuseNode true } }
           steps {
             dir('bugtracker-backend') {
               sh '''
                 set -e
-                # Go-cachar i workspace
                 export GOCACHE="$PWD/.cache/go-build"
                 export GOMODCACHE="$PWD/.cache/go-mod"
                 mkdir -p "$GOCACHE" "$GOMODCACHE"
 
-                # Tester + JUnit-rapport
                 go test -v ./... 2>&1 | go-junit-report > test-results.xml
-
-                # Coverage (HTML)
                 go test -coverprofile coverage.out -covermode=atomic ./...
                 go tool cover -html=coverage.out -o coverage.html
 
-                # Flytta coverage till rapportmapp
                 mkdir -p reports
                 mv coverage.html reports/
-
-                # Sanity
                 ls -la
                 ls -la reports || true
               '''
@@ -50,22 +37,14 @@ pipeline {
           }
         }
 
-        // -------------------- Frontend Tests --------------------
         stage('Unit Tests - Frontend') {
-          agent {
-            docker {
-              image 'node:20-alpine'
-              reuseNode true
-            }
-          }
+          agent { docker { image 'node:20-alpine'; reuseNode true } }
           steps {
             dir('bugtracker-frontend') {
               sh '''
                 set -e
                 npm ci
                 npm test
-
-                # Flytta coverage till rapportmapp
                 mkdir -p reports
                 mv coverage reports/
               '''
@@ -82,41 +61,39 @@ pipeline {
             }
           }
         }
-      } // end parallel
-    } // end stage 'Execute Unit Tests'
+      }
+    }
 
-    // -------------------- Build & start containers --------------------
     stage('Launch Application') {
       agent {
         docker {
           image 'docker:27.5.1'
           reuseNode true
-          // entrypoint='' så Jenkins inte klagar på imagen
           args "--entrypoint='' -v /var/run/docker.sock:/var/run/docker.sock -u 0"
         }
       }
       steps {
-        // (Valfritt) logga in mot Docker Hub för att undvika anonyma pull-rate/503
         script {
           try {
             withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
-              sh '''
-                echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin || true
-              '''
+              sh 'echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin || true'
             }
           } catch (ignored) {
-            // Om credsen inte finns: hoppa över login
             echo 'Docker Hub credentials not configured; continuing anonymously.'
           }
         }
 
-        // Pre-pulla basimager (tål nätstrul)
+        // ---- NYTT: använd Googles mirror först, tagga om lokalt ----
         sh '''
-          docker pull golang:1.21-alpine || true
-          docker pull node:20-alpine || true
+          set +e
+          docker pull mirror.gcr.io/library/golang:1.21-alpine || docker pull golang:1.21-alpine
+          docker tag mirror.gcr.io/library/golang:1.21-alpine golang:1.21-alpine 2>/dev/null || true
+
+          docker pull mirror.gcr.io/library/node:20-alpine   || docker pull node:20-alpine
+          docker tag mirror.gcr.io/library/node:20-alpine   node:20-alpine 2>/dev/null || true
+          set -e
         '''
 
-        // Robust compose med retry (undvik transient 503/timeout)
         retry(3) {
           sh '''
             set -e
@@ -128,24 +105,20 @@ pipeline {
       }
     }
 
-    // -------------------- API tests (Playwright) --------------------
     stage('Api Tests') {
       agent {
         docker {
           image 'mcr.microsoft.com/playwright:v1.50.0-jammy'
           reuseNode true
-          args '-u 0 --network=host' // root + host-nät, så localhost:8080 funkar
+          args '-u 0 --network=host'
         }
       }
       steps {
-        dir('test-api') { // VIKTIGT: mappen heter "test-api" i repot
+        dir('test-api') {
           sh 'npx wait-port http://localhost:8080/api/health -t 30000'
-
           sh 'mkdir -p test-results playwright-report'
-          // Undvik krockar med ev. TS/MJS/CJS-config
           sh 'rm -f playwright.config.ts playwright.config.mjs playwright.config.cjs'
 
-          // Skriv en enkel CommonJS-config (inga imports)
           sh '''
             node -e "require('fs').writeFileSync('playwright.config.js', `
             module.exports = {
@@ -157,8 +130,6 @@ pipeline {
             };
             `)"
           '''
-
-          // Kör testerna mot vår config
           sh 'npx --yes @playwright/test@1.50.0 test -c playwright.config.js'
         }
       }
@@ -173,9 +144,8 @@ pipeline {
         }
       }
     }
-  } // end stages
+  }
 
-  // -------------------- Cleanup --------------------
   post {
     always {
       cleanWs()
