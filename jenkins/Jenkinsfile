@@ -83,7 +83,6 @@ pipeline {
           }
         }
 
-        // ---- NYTT: använd Googles mirror först, tagga om lokalt ----
         sh '''
           set +e
           docker pull mirror.gcr.io/library/golang:1.21-alpine || docker pull golang:1.21-alpine
@@ -119,8 +118,9 @@ pipeline {
           sh 'mkdir -p test-results playwright-report'
           sh 'rm -f playwright.config.ts playwright.config.mjs playwright.config.cjs'
 
+          // --- FIX: skriv config med heredoc, inte via node -e ---
           sh '''
-            node -e "require('fs').writeFileSync('playwright.config.js', `
+            cat > playwright.config.js <<'EOF'
             module.exports = {
               testDir: './',
               reporter: [
@@ -128,8 +128,9 @@ pipeline {
                 ['html',  { outputFolder: 'playwright-report', open: 'never' }],
               ],
             };
-            `)"
+            EOF
           '''
+
           sh 'npx --yes @playwright/test@1.50.0 test -c playwright.config.js'
         }
       }
