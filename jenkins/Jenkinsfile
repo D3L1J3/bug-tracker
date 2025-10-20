@@ -151,13 +151,13 @@ pipeline {
         }
       }
       steps {
-        dir('tests-performance') {
+        dir('tests-perf') {
           sh 'k6 run script.js'
         }
       }
       post {
         always {
-          junit 'tests-performance/performance-results.xml'
+          junit 'tests-perf/performance-results.xml'
         }
       }
     }
