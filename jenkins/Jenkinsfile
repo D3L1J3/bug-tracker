@@ -122,23 +122,24 @@ pipeline {
           // Skapa mappar för rapporter
           sh 'mkdir -p test-results playwright-report'
 
-          // Skriv Playwright-config som definierar reporters och deras output
-          sh '''
-            cat > playwright.config.ts <<'EOF'
-            import { defineConfig } from '@playwright/test';
+          // 1) Säkra att ingen TS/MJS/CJS-config krockar
+          sh 'rm -f playwright.config.ts playwright.config.mjs playwright.config.cjs'
 
-            export default defineConfig({
+          // 2) Skriv en JS-config utan imports (CommonJS)
+          sh '''
+            node -e "require('fs').writeFileSync('playwright.config.js', `
+            module.exports = {
               testDir: './',
               reporter: [
                 ['junit', { outputFile: 'test-results/results.xml' }],
                 ['html',  { outputFolder: 'playwright-report', open: 'never' }],
               ],
-            });
-            EOF
+            };
+            `)"
           '''
 
-          // Kör Playwright via npx (ingen package.json krävs)
-          sh 'npx --yes @playwright/test@1.50.0 test'
+          // 3) Kör Playwright och peka explicit på JS-configen
+          sh 'npx --yes @playwright/test@1.50.0 test -c playwright.config.js'
         }
       }
       post {
