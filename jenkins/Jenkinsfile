@@ -4,8 +4,14 @@ pipeline {
   stages {
     stage('Execute Unit Tests') {
       parallel {
+
         stage('Unit Tests - Backend') {
-          agent { docker { image 'snakee/golang-junit:1.21'; reuseNode true } }
+          agent {
+            docker {
+              image 'snakee/golang-junit:1.21'
+              reuseNode true
+            }
+          }
           steps {
             dir('bugtracker-backend') {
               sh '''
@@ -38,7 +44,12 @@ pipeline {
         }
 
         stage('Unit Tests - Frontend') {
-          agent { docker { image 'node:20-alpine'; reuseNode true } }
+          agent {
+            docker {
+              image 'node:20-alpine'
+              reuseNode true
+            }
+          }
           steps {
             dir('bugtracker-frontend') {
               sh '''
@@ -61,50 +72,10 @@ pipeline {
             }
           }
         }
-      }
-    }
 
-    stage('Launch Application') {
-      agent {
-        docker {
-          image 'docker:27.5.1'
-          reuseNode true
-          args "--entrypoint='' -v /var/run/docker.sock:/var/run/docker.sock -u 0"
-        }
-      }
-      steps {
-        script {
-          try {
-            withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
-              sh 'echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin || true'
-            }
-          } catch (ignored) {
-            echo 'Docker Hub credentials not configured; continuing anonymously.'
-          }
-        }
-
-        // använd Googles mirror först för att slippa Docker Hub-strul
-        sh '''
-          set +e
-          docker pull mirror.gcr.io/library/golang:1.21-alpine || docker pull golang:1.21-alpine
-          docker tag mirror.gcr.io/library/golang:1.21-alpine golang:1.21-alpine 2>/dev/null || true
-
-          docker pull mirror.gcr.io/library/node:20-alpine   || docker pull node:20-alpine
-          docker tag mirror.gcr.io/library/node:20-alpine   node:20-alpine 2>/dev/null || true
-          set -e
-        '''
-
-        retry(3) {
-          sh '''
-            set -e
-            docker compose pull || true
-            docker compose up --build -d
-          '''
-          sleep 5
-        }
-      }
-    }
-  }
+      } // end parallel
+    } // end stage Execute Unit Tests
+  } // end stages
 
   post {
     always {
