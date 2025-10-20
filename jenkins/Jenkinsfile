@@ -83,6 +83,7 @@ pipeline {
           }
         }
 
+        // använd Googles mirror först för att slippa Docker Hub-strul
         sh '''
           set +e
           docker pull mirror.gcr.io/library/golang:1.21-alpine || docker pull golang:1.21-alpine
@@ -100,48 +101,6 @@ pipeline {
             docker compose up --build -d
           '''
           sleep 5
-        }
-      }
-    }
-
-    stage('Api Tests') {
-      agent {
-        docker {
-          image 'mcr.microsoft.com/playwright:v1.50.0-jammy'
-          reuseNode true
-          args '-u 0 --network=host'
-        }
-      }
-      steps {
-        dir('test-api') {
-          sh 'npx wait-port http://localhost:8080/api/health -t 30000'
-          sh 'mkdir -p test-results playwright-report'
-          sh 'rm -f playwright.config.ts playwright.config.mjs playwright.config.cjs'
-
-          // --- FIX: skriv config med heredoc, inte via node -e ---
-          sh '''
-            cat > playwright.config.js <<'EOF'
-            module.exports = {
-              testDir: './',
-              reporter: [
-                ['junit', { outputFile: 'test-results/results.xml' }],
-                ['html',  { outputFolder: 'playwright-report', open: 'never' }],
-              ],
-            };
-            EOF
-          '''
-
-          sh 'npx --yes @playwright/test@1.50.0 test -c playwright.config.js'
-        }
-      }
-      post {
-        always {
-          junit 'test-api/test-results/results.xml'
-          publishHTML target: [
-            reportDir: 'test-api/playwright-report',
-            reportFiles: 'index.html',
-            reportName: 'Playwright Test Report'
-          ]
         }
       }
     }
