@@ -143,6 +143,25 @@ pipeline {
         }
       }
     }
+
+    stage('Performance Tests') {
+      agent {
+        docker {
+          image 'grafana/k6:latest'
+          reuseNode true
+          args '--network=host -u root --entrypoint=""'
+        }
+      }
+      steps {
+        dir('tests-performance') {
+          sh 'k6 run script.js'
+        }
+      }
+      post {
+        always {
+          junit 'tests-performance/performance-results.xml'
+        }
+      }
      // end stage Execute Unit Tests
   } // end stages
 
