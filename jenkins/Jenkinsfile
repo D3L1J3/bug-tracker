@@ -1,38 +1,38 @@
 pipeline {
-  agent any  // Run on any available Jenkins agent
+  agent any // Kör på valfri Jenkins-agent
 
   stages {
     stage('Execute Unit Tests') {
-      parallel {  // Run backend and frontend tests in parallel
-
+      parallel {
         // -------------------- Backend Tests --------------------
         stage('Unit Tests - Backend') {
           agent {
             docker {
-              image 'snakee/golang-junit:1.21'  // Docker image with Go and junit reporter
-              reuseNode true  // Reuse Jenkins node workspace
+              image 'snakee/golang-junit:1.21' // Go + junit reporter
+              reuseNode true
             }
           }
           steps {
             dir('bugtracker-backend') {
               sh '''
-                # Configure Go build caches inside the workspace
+                set -e
+                # Go-cachar i workspace
                 export GOCACHE="$PWD/.cache/go-build"
                 export GOMODCACHE="$PWD/.cache/go-mod"
                 mkdir -p "$GOCACHE" "$GOMODCACHE"
 
-                # Run Go tests and generate JUnit XML report
+                # Tester + JUnit-rapport
                 go test -v ./... 2>&1 | go-junit-report > test-results.xml
 
-                # Generate code coverage report in HTML format
+                # Coverage (HTML)
                 go test -coverprofile coverage.out -covermode=atomic ./...
                 go tool cover -html=coverage.out -o coverage.html
 
-                # Move coverage report into reports folder for Jenkins
+                # Flytta coverage till rapportmapp
                 mkdir -p reports
                 mv coverage.html reports/
 
-                # List files to confirm they exist
+                # Sanity
                 ls -la
                 ls -la reports || true
               '''
@@ -40,10 +40,7 @@ pipeline {
           }
           post {
             always {
-              // Publish backend JUnit test results
               junit 'bugtracker-backend/test-results.xml'
-
-              // Publish backend coverage HTML report
               publishHTML target: [
                 reportDir: 'bugtracker-backend/reports',
                 reportFiles: 'coverage.html',
@@ -57,20 +54,18 @@ pipeline {
         stage('Unit Tests - Frontend') {
           agent {
             docker {
-              image 'node:20-alpine'  // Lightweight Node.js image for frontend tests
+              image 'node:20-alpine'
               reuseNode true
             }
           }
           steps {
             dir('bugtracker-frontend') {
               sh '''
-                # Install dependencies
+                set -e
                 npm ci
-
-                # Run Jest tests and generate coverage report
                 npm test
 
-                # Move coverage output to reports directory
+                # Flytta coverage till rapportmapp
                 mkdir -p reports
                 mv coverage reports/
               '''
@@ -78,10 +73,7 @@ pipeline {
           }
           post {
             always {
-              // Publish frontend JUnit test results
               junit 'bugtracker-frontend/test-results.xml'
-
-              // Publish frontend coverage HTML report
               publishHTML target: [
                 reportDir: 'bugtracker-frontend/reports/coverage',
                 reportFiles: 'index.html',
@@ -93,6 +85,7 @@ pipeline {
       } // end parallel
     } // end stage 'Execute Unit Tests'
 
+    // -------------------- Build & start containers --------------------
     stage('Launch Application') {
       agent {
         docker {
@@ -103,30 +96,56 @@ pipeline {
         }
       }
       steps {
-        sh 'docker compose up --build -d' // Build and launch application in detached mode
+        // (Valfritt) logga in mot Docker Hub för att undvika anonyma pull-rate/503
+        script {
+          try {
+            withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
+              sh '''
+                echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin || true
+              '''
+            }
+          } catch (ignored) {
+            // Om credsen inte finns: hoppa över login
+            echo 'Docker Hub credentials not configured; continuing anonymously.'
+          }
+        }
+
+        // Pre-pulla basimager (tål nätstrul)
+        sh '''
+          docker pull golang:1.21-alpine || true
+          docker pull node:20-alpine || true
+        '''
+
+        // Robust compose med retry (undvik transient 503/timeout)
+        retry(3) {
+          sh '''
+            set -e
+            docker compose pull || true
+            docker compose up --build -d
+          '''
+          sleep 5
+        }
       }
     }
 
+    // -------------------- API tests (Playwright) --------------------
     stage('Api Tests') {
       agent {
         docker {
-          image 'mcr.microsoft.com/playwright:v1.50.0-jammy'  // Playwright image for API tests
+          image 'mcr.microsoft.com/playwright:v1.50.0-jammy'
           reuseNode true
-          args '-u 0 --network=host'  // Run as root and use host network
+          args '-u 0 --network=host' // root + host-nät, så localhost:8080 funkar
         }
       }
       steps {
-        dir('tests-api') {
-          // Vänta in backend
+        dir('test-api') { // VIKTIGT: mappen heter "test-api" i repot
           sh 'npx wait-port http://localhost:8080/api/health -t 30000'
 
-          // Skapa mappar för rapporter
           sh 'mkdir -p test-results playwright-report'
-
-          // 1) Säkra att ingen TS/MJS/CJS-config krockar
+          // Undvik krockar med ev. TS/MJS/CJS-config
           sh 'rm -f playwright.config.ts playwright.config.mjs playwright.config.cjs'
 
-          // 2) Skriv en JS-config utan imports (CommonJS)
+          // Skriv en enkel CommonJS-config (inga imports)
           sh '''
             node -e "require('fs').writeFileSync('playwright.config.js', `
             module.exports = {
@@ -139,18 +158,15 @@ pipeline {
             `)"
           '''
 
-          // 3) Kör Playwright och peka explicit på JS-configen
+          // Kör testerna mot vår config
           sh 'npx --yes @playwright/test@1.50.0 test -c playwright.config.js'
         }
       }
       post {
         always {
-          // Publish Playwright test results (KORRIGERAD SÖKVÄG)
-          junit 'tests-api/test-results/results.xml'
-
-          // Publish Playwright HTML report (KORRIGERAD SÖKVÄG)
+          junit 'test-api/test-results/results.xml'
           publishHTML target: [
-            reportDir: 'tests-api/playwright-report',
+            reportDir: 'test-api/playwright-report',
             reportFiles: 'index.html',
             reportName: 'Playwright Test Report'
           ]
@@ -162,7 +178,6 @@ pipeline {
   // -------------------- Cleanup --------------------
   post {
     always {
-      // Clean workspace after build completes
       cleanWs()
     }
   }
