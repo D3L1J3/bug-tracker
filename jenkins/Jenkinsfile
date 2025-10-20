@@ -98,7 +98,8 @@ pipeline {
         docker {
           image 'docker:27.5.1'
           reuseNode true
-          args '-v /var/run/docker.sock:/var/run/docker.sock -u 0'  // Mount Docker socket for DinD
+          // entrypoint='' så Jenkins inte klagar på imagen
+          args "--entrypoint='' -v /var/run/docker.sock:/var/run/docker.sock -u 0"
         }
       }
       steps {
@@ -115,7 +116,7 @@ pipeline {
         }
       }
       steps {
-        dir('test-api') {
+        dir('tests-api') {
           // Vänta in backend
           sh 'npx wait-port http://localhost:8080/api/health -t 30000'
 
@@ -144,12 +145,12 @@ pipeline {
       }
       post {
         always {
-          // Publish Playwright test results
-          junit 'test-api/test-results/results.xml'
+          // Publish Playwright test results (KORRIGERAD SÖKVÄG)
+          junit 'tests-api/test-results/results.xml'
 
-          // Publish Playwright HTML report
+          // Publish Playwright HTML report (KORRIGERAD SÖKVÄG)
           publishHTML target: [
-            reportDir: 'test-api/playwright-report',
+            reportDir: 'tests-api/playwright-report',
             reportFiles: 'index.html',
             reportName: 'Playwright Test Report'
           ]
