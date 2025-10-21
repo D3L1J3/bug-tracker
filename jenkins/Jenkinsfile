@@ -2,6 +2,7 @@ pipeline {
   agent any
 
   stages {
+
     stage('Execute Unit Tests') {
       parallel {
 
@@ -163,7 +164,9 @@ pipeline {
             reportName: 'Performance Test Results Report'
           ]
         }
+      }
     }
+
   } // end stages
 
   post {
